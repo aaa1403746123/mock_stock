@@ -143,5 +143,6 @@ test('reset preserves human identities and credentials while resetting assets', 
   const view = e.view(a.id)
   assert.equal(view.round, 2); assert.equal(view.config.mode, 'ashare'); assert.equal(view.account.cash, 10000000)
   assert.equal(view.account.orders.length, 0); assert.equal(e.account(a.id).passwordHash, 'PASSWORD')
-  assert.equal(e.state.sessions.token?.accountId, a.id); assert.equal(e.state.accounts.filter(a => a.bot).length, 8)
+  assert.equal(e.state.sessions.token?.accountId, a.id); assert.equal(e.state.accounts.filter(a => a.bot).length, 23)
+  assert.equal(e.state.accounts.filter(a => a.bot?.kind === 'hotMoney').length, 15)
 })

@@ -1,9 +1,10 @@
 import { DEFAULT_SYMBOL, STOCK_CATALOG } from '../src/shared/rules.ts'
+import { aggregateCandles } from '../src/shared/chart-data.ts'
 import type { Account, EngineState, Lot, StockState } from '../src/shared/types.ts'
 
 export const newStocks = (): Record<string, StockState> => Object.fromEntries(STOCK_CATALOG.map(s => [s.symbol, {
   symbol: s.symbol, name: s.name, sector: s.sector, lastPrice: s.initialPrice, previousClose: s.initialPrice,
-  totalVolume: 0, totalTurnover: 0, candles: [],
+  totalVolume: 0, totalTurnover: 0, candles: [], dailyCandles: [],
 }]))
 
 /** Preserve old portfolio costs, lots, market history, sessions and order IDs on read. */
@@ -15,6 +16,10 @@ export function hydrateState(value: unknown): EngineState {
       candles: state.candles ?? [], totalVolume: state.totalVolume ?? 0, totalTurnover: state.totalTurnover ?? 0 })
   }
   for (const definition of STOCK_CATALOG) state.stocks[definition.symbol] ??= newStocks()[definition.symbol]!
+  state.config.hotMoneyCount ??= state.accounts.filter(a => a.bot?.kind === 'hotMoney').length
+  for (const stock of Object.values(state.stocks)) {
+    if (!stock.dailyCandles?.length) stock.dailyCandles = aggregateCandles(stock.candles, '1d')
+  }
   for (const account of state.accounts) {
     const old = account as Account & { lots?: Lot[]; cost?: number; bot?: Account['bot'] & { anchor?: number } }
     account.positions ??= { [DEFAULT_SYMBOL]: { lots: old.lots ?? [], cost: old.cost ?? 0, realized: account.realized } }

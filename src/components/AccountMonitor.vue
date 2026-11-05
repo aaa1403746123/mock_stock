@@ -2,7 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowDownToLine, ArrowRight, Check, ChevronDown, History, LoaderCircle, LockKeyhole, RefreshCw, Search, Users, Wallet } from '@lucide/vue'
 import { api, clock, money, notify } from '../lib/market'
-import { stockName } from '../shared/rules'
+import { HOT_MONEY_STYLES, stockName } from '../shared/rules'
 import type { AccountSummary, BotKind, MonitorDetail, MonitorOverview, OperationType, Order } from '../shared/types'
 
 const props = defineProps<{ round: number; accountId: string }>()
@@ -22,8 +22,8 @@ const liveHistory = ref(true)
 let overviewRequest = 0, detailRequest = 0
 let timer: ReturnType<typeof setInterval> | undefined
 let disposed = false
-const botNames: Record<BotKind, string> = { retail: '随机散户', trend: '趋势散户', value: '价值投资者', whale: '资金大户', maker: '流动性提供者' }
-const roleName = (account: AccountSummary) => account.botKind ? botNames[account.botKind] : account.role === 'admin' ? '真人 · 管理员' : '真人交易者'
+const botNames: Record<BotKind, string> = { retail: '随机散户', trend: '趋势散户', value: '价值投资者', whale: '资金大户', maker: '流动性提供者', hotMoney: '游资' }
+const roleName = (account: AccountSummary) => account.botKind ? `${botNames[account.botKind]}${account.botStyle ? ` · ${HOT_MONEY_STYLES[account.botStyle]}` : ''}` : account.role === 'admin' ? '真人 · 管理员' : '真人交易者'
 const signed = (cents: number) => `${cents > 0 ? '+' : ''}${money(cents)}`
 const changeClass = (value: number) => value > 0 ? 'up' : value < 0 ? 'down' : 'neutral'
 const actionNames: Record<OperationType, string> = { submit: '下单', fill: '成交', cancel: '撤单', snapshot: '旧委托快照' }
@@ -33,7 +33,7 @@ const accounts = computed(() => overview.value?.accounts ?? [])
 const selected = computed(() => accounts.value.find(a => a.id === selectedId.value))
 const filtered = computed(() => {
   const needle = search.value.trim().toLowerCase()
-  return accounts.value.filter(account => (!needle || `${account.name} ${account.id}`.toLowerCase().includes(needle)) && (category.value === 'all' || (category.value === 'human' ? account.role !== 'bot' : category.value === 'bot' ? account.role === 'bot' : account.botKind === category.value)))
+  return accounts.value.filter(account => (!needle || `${account.name} ${account.id} ${roleName(account)}`.toLowerCase().includes(needle)) && (category.value === 'all' || (category.value === 'human' ? account.role !== 'bot' : category.value === 'bot' ? account.role === 'bot' : account.botKind === category.value)))
     .sort((a, b) => sort.value === 'name' ? a.name.localeCompare(b.name, 'zh-CN', { numeric: true }) : (sort.value === 'equity' ? b.equity - a.equity : sort.value === 'return' ? b.returnPct - a.returnPct : b.pnl - a.pnl) || a.id.localeCompare(b.id))
 })
 const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / 50)))

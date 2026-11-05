@@ -1,6 +1,8 @@
 import type { Account, AccountOperation, AccountSummary, BotKind, Candle, EngineState, FundingAdjustment, MarketConfig, Mode, Order, PersonalView, Position, PositionView, Side, Snapshot, StockQuote, SubmitOrder, Trade } from '../src/shared/types.ts'
-import { DEFAULT_BOT_COUNT, DEFAULT_SYMBOL, MAX_ACCOUNT_EQUITY, MIN_BOT_COUNT, MAX_BOT_COUNT, STOCK_CATALOG } from '../src/shared/rules.ts'
+import { DEFAULT_BOT_COUNT, DEFAULT_HOT_MONEY_COUNT, DEFAULT_SYMBOL, HOT_MONEY_INITIAL_CASH, MAX_ACCOUNT_EQUITY, MIN_BOT_COUNT, MAX_BOT_COUNT, STOCK_CATALOG } from '../src/shared/rules.ts'
 import { hydrateState, newStocks } from './migrations.ts'
+import { candleStart } from '../src/shared/chart-data.ts'
+import { decideHotMoney, hotMoneyProfile } from './hot-money.ts'
 
 export const INITIAL_PRICE = 4862
 const INITIAL_CASH = 10_000_000
@@ -22,18 +24,19 @@ export class MarketEngine {
   private get botCursor() { return this.state.botCursor ?? 0 }
   private set botCursor(value: number) { this.state.botCursor = value }
   private nextPrune = 0
-  constructor(saved?: EngineState, options: { warmup?: boolean; botCount?: number; mode?: Mode; seed?: number; time?: number; round?: number; feesEnabled?: boolean } = {}) {
+  constructor(saved?: EngineState, options: { warmup?: boolean; botCount?: number; hotMoneyCount?: number; mode?: Mode; seed?: number; time?: number; round?: number; feesEnabled?: boolean } = {}) {
     if (saved) { this.state = hydrateState(saved); this.rebuildIndexes(); return }
     let start = options.time ?? new Date(`${dayOf(Date.now())}T09:30:00+08:00`).getTime()
     while ([0, 6].includes(weekday(start))) start += 86400_000
     this.state = {
       version: 2, round: options.round ?? 1, time: start, day: dayOf(start), seed: options.seed ?? 20261105, seq: 0,
-      stocks: newStocks(), migrations: ['population-1000-v1'],
-      config: { mode: options.mode ?? 'free', speed: 1, paused: false, botCount: options.botCount ?? DEFAULT_BOT_COUNT, feesEnabled: options.feesEnabled ?? options.mode === 'ashare', initialCash: INITIAL_CASH },
+      stocks: newStocks(), migrations: ['population-1000-v1', 'hot-money-15-v1', 'hot-money-capital-200m-3b-v1'],
+      config: { mode: options.mode ?? 'free', speed: 1, paused: false, botCount: options.botCount ?? DEFAULT_BOT_COUNT, hotMoneyCount: options.hotMoneyCount ?? (options.botCount === 0 ? 0 : DEFAULT_HOT_MONEY_COUNT), feesEnabled: options.feesEnabled ?? options.mode === 'ashare', initialCash: INITIAL_CASH },
       accounts: [], orders: [], trades: [], feesCollected: 0, sessions: {}, requests: {},
     }
     this.rebuildIndexes()
     this.addBots(this.state.config.botCount)
+    this.addHotMoney(this.state.config.hotMoneyCount)
     if (options.warmup !== false && this.state.config.botCount) for (let i = 0; i < 180; i++) this.advance(30)
     for (const symbol of Object.keys(this.state.stocks)) this.ensureCandle(symbol)
   }
@@ -75,7 +78,7 @@ export class MarketEngine {
   }
   addBots(count: number) {
     const kinds: BotKind[] = ['maker', 'maker', 'retail', 'trend', 'value', 'retail', 'whale', 'retail']
-    const offset = this.state.accounts.filter(a => a.role === 'bot').length
+    const offset = this.state.accounts.filter(a => a.role === 'bot' && a.bot?.kind !== 'hotMoney').length
     for (let i = offset; i < offset + count; i++) {
       const kind = kinds[Math.floor(i / STOCK_CATALOG.length) % kinds.length]!
       const symbol = STOCK_CATALOG[i % STOCK_CATALOG.length]!.symbol
@@ -85,19 +88,50 @@ export class MarketEngine {
         frequency: kind === 'maker' ? 10 + this.random() * 20 : 20 + this.random() * 100, risk: .2 + this.random() * .7 }
     }
   }
+  addHotMoney(count: number) {
+    const names = ['破晓', '凌峰', '听潮', '惊雷', '远岫', '逐日', '赤霄', '潜川', '回澜', '云帆', '长虹', '锐锋', '静渊', '星火', '苍穹']
+    const offset = this.state.accounts.filter(a => a.bot?.kind === 'hotMoney').length
+    for (let i = offset; i < Math.min(offset + count, DEFAULT_HOT_MONEY_COUNT); i++) {
+      const symbol = STOCK_CATALOG[i % STOCK_CATALOG.length]!.symbol
+      const account = this.createAccount(`游资 ${String(i + 1).padStart(2, '0')} · ${names[i]}`, 'bot', HOT_MONEY_INITIAL_CASH[i]!)
+      account.bot = { kind: 'hotMoney', primarySymbol: symbol, anchors: {}, risk: .7,
+        frequency: 12 + i * 2, nextAt: this.state.time + this.random() * 30000, hotMoney: hotMoneyProfile(i) }
+    }
+  }
   upgradePopulation() {
-    if (this.state.migrations?.includes('population-1000-v1')) return
-    const count = this.state.accounts.filter(a => a.role === 'bot').length
-    this.addBots(Math.max(0, DEFAULT_BOT_COUNT - count))
-    this.state.config.botCount = this.state.accounts.filter(a => a.role === 'bot').length
-    this.state.migrations = [...(this.state.migrations ?? []), 'population-1000-v1']
+    if (!this.state.migrations?.includes('population-1000-v1')) {
+      const count = this.state.accounts.filter(a => a.role === 'bot' && a.bot?.kind !== 'hotMoney').length
+      this.addBots(Math.max(0, DEFAULT_BOT_COUNT - count))
+      this.state.config.botCount = this.state.accounts.filter(a => a.role === 'bot' && a.bot?.kind !== 'hotMoney').length
+      this.state.migrations = [...(this.state.migrations ?? []), 'population-1000-v1']
+    }
+    if (!this.state.migrations?.includes('hot-money-15-v1')) {
+      this.addHotMoney(Math.max(0, DEFAULT_HOT_MONEY_COUNT - this.state.accounts.filter(a => a.bot?.kind === 'hotMoney').length))
+      this.state.config.hotMoneyCount = this.state.accounts.filter(a => a.bot?.kind === 'hotMoney').length
+      this.state.migrations = [...(this.state.migrations ?? []), 'hot-money-15-v1']
+    }
+    const capitalMigration = 'hot-money-capital-200m-3b-v1'
+    if (!this.state.migrations?.includes(capitalMigration)) {
+      const accounts = this.state.accounts.filter(a => a.role === 'bot' && a.bot?.kind === 'hotMoney')
+      accounts.slice(0, DEFAULT_HOT_MONEY_COUNT).forEach((account, index) => {
+        const capital = HOT_MONEY_INITIAL_CASH[index]!
+        const delta = Math.max(0, capital - account.initialEquity - account.netFunding)
+        if (!delta) return
+        const beforeEquity = account.cash + this.marketValue(account)
+        account.fundingAdjustments.push({ id: this.id('fund'), requestId: `${capitalMigration}:${account.id}`, time: this.state.time,
+          reason: `游资资金档位升级至 ${capital / 100 / 100_000_000} 亿元`, beforeEquity, targetEquity: beforeEquity + delta,
+          delta, cashBefore: account.cash, cashAfter: account.cash + delta })
+        account.cash += delta; account.netFunding += delta; account.totalDeposits += delta
+      })
+      this.state.migrations = [...(this.state.migrations ?? []), capitalMigration]
+    }
   }
   logOperation(order: Order, type: 'submit' | 'fill' | 'cancel', options: { tradeId?: string; price?: number; quantity?: number; fee?: number; reason?: string } = {}) {
     const account = this.account(order.accountId)
     this.operations.push({ id: `${this.state.round}:${type}:${options.tradeId ?? order.id}:${account.id}`, round: this.state.round,
       accountId: account.id, symbol: order.symbol, time: this.state.time, type, orderId: order.id, side: order.side, kind: order.kind,
       price: options.price ?? order.price, quantity: options.quantity ?? (type === 'cancel' ? order.remaining : order.quantity),
-      remaining: order.remaining, status: order.status, fee: options.fee ?? 0, reason: options.reason,
+      remaining: order.remaining, status: order.status, fee: options.fee ?? 0, reason: options.reason ?? order.strategyReason,
       cashAfter: account.cash, sharesAfter: sharesOf(account, order.symbol), realizedAfter: account.realized })
   }
   cancelActive(order: Order, reason: string) {
@@ -127,7 +161,7 @@ export class MarketEngine {
   frozenCash(id: string) { let sum = 0; for (const o of this.ownOrders(id)) sum += o.side === 'buy' ? this.reserveFor(o) : this.sellFeeReserve(o); return sum }
   frozenShares(id: string, symbol = DEFAULT_SYMBOL) { let sum = 0; for (const o of this.ownOrders(id)) if (o.side === 'sell' && o.symbol === symbol) sum += o.remaining; return sum }
   availableShares(account: Account, symbol = DEFAULT_SYMBOL) { return (account.positions[symbol]?.lots ?? []).filter(lot => this.state.config.mode === 'free' || lot.acquiredDay < this.state.day).reduce((sum, lot) => sum + lot.quantity, 0) - this.frozenShares(account.id, symbol) }
-  submit(accountId: string, input: SubmitOrder, internal = false): Order {
+  submit(accountId: string, input: SubmitOrder, internal = false, strategyReason?: string): Order {
     const account = this.account(accountId), symbol = input.symbol ?? DEFAULT_SYMBOL, stock = this.stock(symbol)
     const fingerprint = JSON.stringify([symbol, input.side, input.kind, input.price ?? null, input.quantity])
     if (!internal) {
@@ -154,6 +188,7 @@ export class MarketEngine {
     if (input.side === 'sell' && this.availableShares(account, symbol) < input.quantity) throw new MarketError(this.state.config.mode === 'ashare' ? '该股票可卖数量不足；当日买入须到下一模拟交易日才能卖出' : '该股票可卖数量不足，请检查持仓及冻结数量')
     if (input.side === 'sell' && account.cash - this.frozenCash(accountId) < Math.max(0, this.feeFor(price!, 'sell') - price!)) throw new MarketError('低价股票卖出须预留可用资金，以支付首次部分成交的最低佣金')
     const order: Order = { id: this.id('o'), accountId, symbol, side: input.side, kind: input.kind, price: price!, quantity: input.quantity, remaining: input.quantity, filled: 0, averagePrice: 0, status: 'open', createdAt: this.state.time, seq: this.state.seq, fee: 0, turnover: 0 }
+    if (internal && strategyReason) order.strategyReason = strategyReason
     this.state.orders.push(order); this.orderIndex.set(order.id, order); this.trackActive(order)
     if (!internal) this.state.requests[`${accountId}:${input.requestId}`] = { orderId: order.id, fingerprint }
     this.logOperation(order, 'submit')
@@ -199,9 +234,10 @@ export class MarketEngine {
     stock.lastPrice = price; stock.totalVolume += quantity; stock.totalTurnover += value
     const trade: Trade = { id: this.id('t'), symbol, time: this.state.time, price, quantity, side: incoming.side, buyAccountId: buyer.id, sellAccountId: seller.id, buyOrderId: buy.id, sellOrderId: sell.id }
     this.state.trades.push(trade)
-    const candle = this.ensureCandle(symbol)
-    if (candle.volume === 0) candle.open = candle.high = candle.low = price
-    candle.high = Math.max(candle.high, price); candle.low = Math.min(candle.low, price); candle.close = price; candle.volume += quantity
+    for (const candle of [this.ensureCandle(symbol), this.ensureDailyCandle(symbol)]) {
+      if (candle.volume === 0) candle.open = candle.high = candle.low = price
+      candle.high = Math.max(candle.high, price); candle.low = Math.min(candle.low, price); candle.close = price; candle.volume += quantity
+    }
     this.recordEquity(buyer); this.recordEquity(seller)
     this.logOperation(buy, 'fill', { tradeId: trade.id, price, quantity, fee: buyFee }); this.logOperation(sell, 'fill', { tradeId: trade.id, price, quantity, fee: sellFee })
   }
@@ -212,11 +248,21 @@ export class MarketEngine {
     this.cancelActive(order, 'user'); return order
   }
   ensureCandle(symbol = DEFAULT_SYMBOL): Candle {
+    this.ensureDailyCandle(symbol)
     const stock = this.stock(symbol), time = Math.floor(this.state.time / 60_000) * 60
     let candle = stock.candles.at(-1)
     if (!candle || candle.time !== time) {
       candle = { time, open: stock.lastPrice, high: stock.lastPrice, low: stock.lastPrice, close: stock.lastPrice, volume: 0 }
       stock.candles.push(candle); if (stock.candles.length > 1440) stock.candles.shift()
+    }
+    return candle
+  }
+  private ensureDailyCandle(symbol: string): Candle {
+    const stock = this.stock(symbol), time = candleStart(this.state.time / 1000, '1d')
+    let candle = stock.dailyCandles.at(-1)
+    if (!candle || candle.time !== time) {
+      candle = { time, open: stock.lastPrice, high: stock.lastPrice, low: stock.lastPrice, close: stock.lastPrice, volume: 0 }
+      stock.dailyCandles.push(candle)
     }
     return candle
   }
@@ -260,6 +306,7 @@ export class MarketEngine {
       if (bot.nextAt > this.state.time) continue
       decisions++; bot.nextAt = this.state.time + bot.frequency * (.5 + this.random()) * 1000
       for (const order of [...this.ownOrders(account.id)]) if (this.state.time - order.createdAt > (bot.kind === 'maker' ? 4000 : 30000)) this.cancelActive(order, 'strategy')
+      if (bot.kind === 'hotMoney') { this.runHotMoney(account); continue }
       // Decisions use this bot's private state and the public tape, never another portfolio.
       const symbol = bot.kind === 'maker' || this.random() < .75 ? bot.primarySymbol : STOCK_CATALOG[Math.floor(this.random() * STOCK_CATALOG.length)]!.symbol
       const stock = this.stock(symbol), last = stock.lastPrice, reference = stock.candles.at(-6)?.close ?? last
@@ -285,6 +332,28 @@ export class MarketEngine {
       const distance = 1 + Math.floor(this.random() * (bot.kind === 'whale' ? 20 : 12))
       send(side, clamp(last + (side === 'buy' ? 1 : -1) * distance * (aggressive ? 1 : -1)), (1 + Math.floor(this.random() * (bot.kind === 'whale' ? 24 : 5))) * 100)
     }
+  }
+  private runHotMoney(account: Account) {
+    const profile = account.bot?.hotMoney
+    if (!profile) return
+    const markets = Object.values(this.state.stocks).map(stock => {
+      const depth = (side: Side) => {
+        const levels = new Map<number, number>()
+        for (const order of this.books.get(stock.symbol)![side]) levels.set(order.price, (levels.get(order.price) ?? 0) + order.remaining)
+        return [...levels].sort((a, b) => side === 'buy' ? b[0] - a[0] : a[0] - b[0]).slice(0, 5).reduce((sum, [, quantity]) => sum + quantity, 0)
+      }
+      return { symbol: stock.symbol, price: stock.lastPrice, previousClose: stock.previousClose, candles: stock.candles,
+        bidVolume: depth('buy'), askVolume: depth('sell'), ...this.limits(stock.symbol) }
+    })
+    const marketValue = this.marketValue(account), frozenCash = this.frozenCash(account.id), pendingBuys: Record<string, number> = {}
+    for (const order of this.ownOrders(account.id)) if (order.side === 'buy') pendingBuys[order.symbol] = (pendingBuys[order.symbol] ?? 0) + this.reserveFor(order)
+    const decision = decideHotMoney(profile, { time: this.state.time, equity: account.cash + marketValue, marketValue,
+      availableCash: account.cash - frozenCash, frozenCash, positions: this.positionViews(account), pendingBuys, markets })
+    if (!decision) return
+    try {
+      this.submit(account.id, { ...decision, kind: 'limit', requestId: '' }, true, decision.reason)
+      profile.lastActionAt = this.state.time
+    } catch (error) { if (!(error instanceof MarketError)) throw error }
   }
   prune() {
     const cutoff = this.state.time - 2 * 3600_000
@@ -324,7 +393,7 @@ export class MarketEngine {
     const marketValue = positions.reduce((s, p) => s + p.marketValue, 0), shares = positions.reduce((s, p) => s + p.shares, 0)
     const equity = account.cash + marketValue, pnl = equity - account.initialEquity - account.netFunding
     const invested = account.initialEquity + account.totalDeposits, held = positions.filter(p => p.shares > 0)
-    return { id: account.id, name: account.name, role: account.role, botKind: account.bot?.kind ?? null,
+    return { id: account.id, name: account.name, role: account.role, botKind: account.bot?.kind ?? null, botStyle: account.bot?.hotMoney?.style ?? null,
       cash: account.cash, availableCash: account.cash - frozenCash, frozenCash, shares,
       sellable: positions.reduce((s, p) => s + p.sellable, 0), frozenShares: positions.reduce((s, p) => s + p.frozenShares, 0),
       marketValue, averageCost: held.length === 1 ? held[0]!.averageCost : 0, equity, initialEquity: account.initialEquity,
@@ -350,10 +419,10 @@ export class MarketEngine {
     return adjustment
   }
   quote(symbol = DEFAULT_SYMBOL): StockQuote {
-    const stock = this.stock(symbol), today = stock.candles.filter(c => dayOf(c.time * 1000) === this.state.day && c.volume > 0), { lower, upper } = this.limits(symbol)
+    const stock = this.stock(symbol), today = stock.dailyCandles.at(-1), hasTrades = today && dayOf(today.time * 1000) === this.state.day && today.volume > 0, { lower, upper } = this.limits(symbol)
     return { symbol, name: stock.name, sector: stock.sector, price: stock.lastPrice, previousClose: stock.previousClose,
       change: stock.lastPrice - stock.previousClose, changePct: (stock.lastPrice / stock.previousClose - 1) * 100,
-      open: today[0]?.open ?? stock.lastPrice, high: today.length ? Math.max(...today.map(c => c.high)) : stock.lastPrice, low: today.length ? Math.min(...today.map(c => c.low)) : stock.lastPrice,
+      open: hasTrades ? today.open : stock.lastPrice, high: hasTrades ? today.high : stock.lastPrice, low: hasTrades ? today.low : stock.lastPrice,
       volume: stock.totalVolume, turnover: stock.totalTurnover, upperLimit: this.state.config.mode === 'ashare' ? upper : null, lowerLimit: this.state.config.mode === 'ashare' ? lower : null }
   }
   view(accountId: string, symbol = DEFAULT_SYMBOL): Snapshot {
@@ -368,8 +437,8 @@ export class MarketEngine {
       return [...grouped].sort((a, b) => side === 'buy' ? b[0] - a[0] : a[0] - b[0]).slice(0, 5).map(([price, quantity]) => ({ price, quantity }))
     }
     return { round: this.state.round, time: this.state.time, day: this.state.day, config: { ...this.state.config }, status: this.status(),
-      stock: this.quote(symbol), stocks: Object.keys(this.state.stocks).map(s => this.quote(s)), book: { bids: levels('buy'), asks: levels('sell') }, candles: stock.candles,
+      stock: this.quote(symbol), stocks: Object.keys(this.state.stocks).map(s => this.quote(s)), book: { bids: levels('buy'), asks: levels('sell') }, candles: stock.candles, dailyCandles: stock.dailyCandles,
       trades: this.state.trades.filter(t => t.symbol === symbol).slice(-40).reverse().map(publicTrade),
-      bots: (['retail', 'trend', 'value', 'whale', 'maker'] as BotKind[]).map(kind => ({ kind, count: this.state.accounts.filter(a => a.bot?.kind === kind).length })), participants: this.state.accounts.length, account: personal }
+      bots: (['retail', 'trend', 'value', 'whale', 'maker', 'hotMoney'] as BotKind[]).map(kind => ({ kind, count: this.state.accounts.filter(a => a.bot?.kind === kind).length })), participants: this.state.accounts.length, account: personal }
   }
 }

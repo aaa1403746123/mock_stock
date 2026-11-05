@@ -1,6 +1,9 @@
 export const DEFAULT_BOT_COUNT = 1000
 export const MIN_BOT_COUNT = 8
 export const MAX_BOT_COUNT = 1000
+export const DEFAULT_HOT_MONEY_COUNT = 15
+export const HOT_MONEY_INITIAL_CASH = Array.from({ length: DEFAULT_HOT_MONEY_COUNT }, (_, i) => (i + 1) * 2 * 100_000_000 * 100)
+export const HOT_MONEY_STYLES = { breakout: '突破追涨', momentum: '强势接力', pullback: '回调低吸', reversal: '放量反转', swing: '趋势波段' } as const
 export const MAX_ACCOUNT_EQUITY = 1_000_000_000_000
 export const DEFAULT_SYMBOL = '600001.SH'
 export const STOCK_CATALOG = [

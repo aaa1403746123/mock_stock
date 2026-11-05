@@ -1,7 +1,13 @@
 export type Mode = 'free' | 'ashare'
 export type Side = 'buy' | 'sell'
 export type OrderKind = 'limit' | 'market'
-export type BotKind = 'retail' | 'trend' | 'value' | 'whale' | 'maker'
+export type BotKind = 'retail' | 'trend' | 'value' | 'whale' | 'maker' | 'hotMoney'
+export type HotMoneyStyle = 'breakout' | 'momentum' | 'pullback' | 'reversal' | 'swing'
+export interface HotMoneyState {
+  style: HotMoneyStyle; lookback: number; sensitivity: number; maxPosition: number; maxExposure: number;
+  orderFraction: number; participation: number; stopLoss: number; takeProfit: number; trailingStop: number;
+  cooldown: number; lastActionAt: number; peaks: Record<string, number>;
+}
 export interface Lot { quantity: number; acquiredDay: string }
 export interface Position { lots: Lot[]; cost: number; realized: number }
 export interface EquityPoint { time: number; equity: number; netFunding?: number }
@@ -11,24 +17,24 @@ export interface FundingAdjustment {
 }
 export interface StockState {
   symbol: string; name: string; sector: string; lastPrice: number; previousClose: number;
-  totalVolume: number; totalTurnover: number; candles: Candle[];
+  totalVolume: number; totalTurnover: number; candles: Candle[]; dailyCandles: Candle[];
 }
 export interface Account {
   id: string; name: string; role: 'admin' | 'trader' | 'bot'; username?: string; passwordHash?: string;
   cash: number; positions: Record<string, Position>; realized: number; initialEquity: number;
   netFunding: number; totalDeposits: number; fundingAdjustments: FundingAdjustment[];
-  bot?: { kind: BotKind; nextAt: number; primarySymbol: string; anchors: Record<string, number>; frequency: number; risk: number };
+  bot?: { kind: BotKind; nextAt: number; primarySymbol: string; anchors: Record<string, number>; frequency: number; risk: number; hotMoney?: HotMoneyState };
   equityHistory: EquityPoint[];
 }
 export interface Order {
   id: string; accountId: string; symbol: string; side: Side; kind: OrderKind; price: number; quantity: number;
   remaining: number; filled: number; averagePrice: number; status: 'open' | 'partial' | 'filled' | 'cancelled';
-  createdAt: number; seq: number; fee: number; turnover: number; cancelReason?: 'self_trade' | 'no_liquidity';
+  createdAt: number; seq: number; fee: number; turnover: number; cancelReason?: 'self_trade' | 'no_liquidity'; strategyReason?: string;
 }
 export interface Trade { id: string; symbol: string; time: number; price: number; quantity: number; side: Side; buyAccountId: string; sellAccountId: string; buyOrderId: string; sellOrderId: string }
 export type PublicTrade = Omit<Trade, 'buyAccountId' | 'sellAccountId' | 'buyOrderId' | 'sellOrderId'>
 export interface Candle { time: number; open: number; high: number; low: number; close: number; volume: number }
-export interface MarketConfig { mode: Mode; speed: number; paused: boolean; botCount: number; feesEnabled: boolean; initialCash: number }
+export interface MarketConfig { mode: Mode; speed: number; paused: boolean; botCount: number; hotMoneyCount: number; feesEnabled: boolean; initialCash: number }
 export interface EngineState {
   migrations?: string[];
   botCursor?: number;
@@ -51,13 +57,13 @@ export interface Snapshot {
   round: number; time: number; day: string; config: MarketConfig; status: string;
   stock: StockQuote; stocks: StockQuote[];
   book: { bids: { price: number; quantity: number }[]; asks: { price: number; quantity: number }[] };
-  candles: Candle[]; trades: PublicTrade[]; bots: { kind: BotKind; count: number }[]; participants: number;
+  candles: Candle[]; dailyCandles: Candle[]; trades: PublicTrade[]; bots: { kind: BotKind; count: number }[]; participants: number;
   account: PersonalView;
 }
 export interface SubmitOrder { symbol?: string; side: Side; kind: OrderKind; price?: number; quantity: number; requestId: string }
 
 export interface AccountSummary {
-  id: string; name: string; role: Account['role']; botKind: BotKind | null;
+  id: string; name: string; role: Account['role']; botKind: BotKind | null; botStyle: HotMoneyStyle | null;
   cash: number; availableCash: number; frozenCash: number; shares: number; sellable: number; frozenShares: number;
   marketValue: number; averageCost: number; equity: number; initialEquity: number;
   realized: number; unrealized: number; pnl: number; returnPct: number; openOrders: number;

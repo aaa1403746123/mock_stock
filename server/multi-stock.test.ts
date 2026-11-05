@@ -101,13 +101,13 @@ test('single-stock saves hydrate without changing assets, active orders, session
   assert.deepEqual(restored.state.sessions, e.state.sessions)
 })
 
-test('1000 independently scheduled bots trade all ten stocks, conserve assets and resume deterministically', t => {
+test('1015 independently scheduled bots trade all ten stocks, conserve assets and resume deterministically', t => {
   const e = new MarketEngine(undefined, { warmup: false, time, seed: 321 })
   const supply = () => Object.fromEntries(STOCK_CATALOG.map(s => [s.symbol, e.state.accounts.reduce((sum, a) => sum + (a.positions[s.symbol]?.lots ?? []).reduce((v, l) => v + l.quantity, 0), 0)]))
   const beforeShares = supply(), beforeCash = e.state.accounts.reduce((sum, a) => sum + a.cash, 0)
   const durations: number[] = []
   for (let i = 0; i < 100; i++) { const start = performance.now(); e.advance(60); durations.push(performance.now() - start); e.operations.length = 0 }
-  assert.equal(e.state.accounts.length, 1000)
+  assert.equal(e.state.accounts.length, 1015)
   assert.ok(e.state.accounts.every(a => a.bot!.nextAt > time + 30000))
   assert.ok(Object.values(e.state.stocks).every(s => s.totalVolume > 0))
   assert.deepEqual(supply(), beforeShares)
@@ -120,5 +120,5 @@ test('1000 independently scheduled bots trade all ten stocks, conserve assets an
   e.advance(60); restored.advance(60)
   assert.deepEqual(restored.state, e.state)
   const summaryStart = performance.now(); e.state.accounts.map(a => e.accountSummary(a.id))
-  t.diagnostic(`1000 bots / 10 stocks: average tick ${(durations.reduce((s, n) => s + n, 0) / durations.length).toFixed(2)}ms, max ${Math.max(...durations).toFixed(2)}ms, all-account summary ${(performance.now() - summaryStart).toFixed(2)}ms`)
+  t.diagnostic(`1015 bots / 10 stocks: average tick ${(durations.reduce((s, n) => s + n, 0) / durations.length).toFixed(2)}ms, max ${Math.max(...durations).toFixed(2)}ms, all-account summary ${(performance.now() - summaryStart).toFixed(2)}ms`)
 })

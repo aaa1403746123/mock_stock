@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { ArrowRight, History, LoaderCircle, SlidersHorizontal, Wallet, X } from '@lucide/vue'
 import { api, money, notify, selectedSymbol, snapshot, clock } from '../lib/market'
+import { createRequestId } from '../lib/request-id'
 import type { FundingAdjustment, PersonalView, Snapshot } from '../shared/types'
 import { MAX_ACCOUNT_EQUITY } from '../shared/rules'
 const props = defineProps<{ account: PersonalView; round: number }>()
@@ -16,7 +17,7 @@ async function submit() {
   if (!Number.isSafeInteger(targetCents.value) || Math.abs(Number(target.value) * 100 - targetCents.value) > .000001 || targetCents.value < 0 || targetCents.value > MAX_ACCOUNT_EQUITY) { error.value = '请输入有效的总资产金额，最多保留两位小数'; return }
   const input = { targetEquity: targetCents.value, reason: reason.value, round: props.round }
   const fingerprint = JSON.stringify(input)
-  if (lastRequest?.fingerprint !== fingerprint) lastRequest = { fingerprint, id: crypto.randomUUID() }
+  if (lastRequest?.fingerprint !== fingerprint) lastRequest = { fingerprint, id: createRequestId() }
   busy.value = true; error.value = ''
   try {
     const result = await api<{ snapshot: Snapshot; adjustment: FundingAdjustment }>('/admin/equity', 'POST', { ...input, requestId: lastRequest.id })
