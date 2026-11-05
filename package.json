@@ -1,0 +1,33 @@
+{
+  "name": "market-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "dev": "concurrently -k -n server,web \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
+    "build": "vue-tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "test": "tsx --test server/*.test.ts",
+    "check": "vue-tsc --noEmit",
+    "admin:grant": "tsx server/grant-admin.ts"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "lightweight-charts": "5.2.1",
+    "@lucide/vue": "1.68.0",
+    "vue": "3.5.44",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.0",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-vue": "6.0.10",
+    "concurrently": "^9.2.1",
+    "tsx": "4.23.15",
+    "typescript": "~5.9.3",
+    "vite": "8.3.6",
+    "vue-tsc": "^3.1.0"
+  }
+}
