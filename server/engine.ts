@@ -30,7 +30,7 @@ export class MarketEngine {
     while ([0, 6].includes(weekday(start))) start += 86400_000
     this.state = {
       version: 2, round: options.round ?? 1, time: start, day: dayOf(start), seed: options.seed ?? 20261105, seq: 0,
-      stocks: newStocks(), migrations: ['population-1000-v1', 'hot-money-15-v1', 'hot-money-capital-200m-3b-v1'],
+      stocks: newStocks(), migrations: ['population-1000-v1', 'hot-money-15-v1', 'hot-money-capital-200m-3b-v1', 'liquidity-50-stocks-v1'],
       config: { mode: options.mode ?? 'free', speed: 1, paused: false, botCount: options.botCount ?? DEFAULT_BOT_COUNT, hotMoneyCount: options.hotMoneyCount ?? (options.botCount === 0 ? 0 : DEFAULT_HOT_MONEY_COUNT), feesEnabled: options.feesEnabled ?? options.mode === 'ashare', initialCash: INITIAL_CASH },
       accounts: [], orders: [], trades: [], feesCollected: 0, sessions: {}, requests: {},
     }
@@ -71,10 +71,26 @@ export class MarketEngine {
     const stock = this.stock(symbol)
     const account: Account = {
       id: this.id('a'), name, role, cash, positions: shares ? { [symbol]: { lots: [{ quantity: shares, acquiredDay: '2000-01-01' }], cost: shares * stock.lastPrice, realized: 0 } } : {},
-      realized: 0, initialEquity: cash + shares * stock.lastPrice, netFunding: 0, totalDeposits: 0, fundingAdjustments: [], equityHistory: [],
+      realized: 0, initialEquity: cash + shares * stock.lastPrice, netFunding: 0, totalDeposits: 0, fundingAdjustments: [], stockGrants: [], equityHistory: [],
     }
     this.state.accounts.push(account); this.accountIndex.set(account.id, account); this.recordEquity(account)
     return account
+  }
+  private grantStock(account: Account, symbol: string, quantity: number, reason: string) {
+    if (quantity <= 0) return
+    const position = this.position(account, symbol), price = this.stock(symbol).lastPrice, value = price * quantity
+    const sharesBefore = sharesOf(account, symbol)
+    position.lots.push({ quantity, acquiredDay: '2000-01-01' }); position.cost += value
+    account.netFunding += value; account.totalDeposits += value
+    account.stockGrants.push({ id: this.id('stock-grant'), time: this.state.time, symbol, quantity, price, value, sharesBefore, sharesAfter: sharesBefore + quantity, reason })
+    this.recordEquity(account)
+  }
+  seedBasePositions(accountId: string, quantity: number) {
+    const account = this.account(accountId)
+    if (account.role === 'bot') throw new MarketError('该底仓配置仅用于真人账户')
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 1_000_000) throw new MarketError('底仓数量须为 1–1,000,000 股')
+    account.basePositionQuantity = quantity
+    for (const { symbol } of STOCK_CATALOG) this.grantStock(account, symbol, Math.max(0, quantity - sharesOf(account, symbol)), '练习底仓配置')
   }
   addBots(count: number) {
     const kinds: BotKind[] = ['maker', 'maker', 'retail', 'trend', 'value', 'retail', 'whale', 'retail']
@@ -124,6 +140,21 @@ export class MarketEngine {
         account.cash += delta; account.netFunding += delta; account.totalDeposits += delta
       })
       this.state.migrations = [...(this.state.migrations ?? []), capitalMigration]
+    }
+    if (!this.state.migrations?.includes('liquidity-50-stocks-v1')) {
+      const byKind = new Map<BotKind, number>()
+      for (const account of this.state.accounts) {
+        const bot = account.bot
+        if (!bot || bot.kind === 'hotMoney') continue
+        const index = byKind.get(bot.kind) ?? 0, symbol = STOCK_CATALOG[index % STOCK_CATALOG.length]!.symbol
+        byKind.set(bot.kind, index + 1); bot.primarySymbol = symbol
+        for (const definition of STOCK_CATALOG) bot.anchors[definition.symbol] ??= this.stock(definition.symbol).lastPrice
+        if (index % STOCK_CATALOG.length >= 10) {
+          const target = bot.kind === 'maker' ? 50000 : bot.kind === 'whale' ? 20000 : 5000
+          this.grantStock(account, symbol, Math.max(0, target - sharesOf(account, symbol)), '新增股票流动性初始持仓')
+        }
+      }
+      this.state.migrations = [...(this.state.migrations ?? []), 'liquidity-50-stocks-v1']
     }
   }
   logOperation(order: Order, type: 'submit' | 'fill' | 'cancel', options: { tradeId?: string; price?: number; quantity?: number; fee?: number; reason?: string } = {}) {
@@ -376,10 +407,11 @@ export class MarketEngine {
     for (const orders of this.openByAccount.values()) for (const order of [...orders]) this.cancelActive(order, 'round_end')
     fresh.state.sessions = old.sessions
     for (const account of old.accounts.filter(a => a.role !== 'bot')) {
-      fresh.state.accounts.push({ ...account, cash: fresh.state.config.initialCash, positions: {}, realized: 0, initialEquity: fresh.state.config.initialCash, netFunding: 0, totalDeposits: 0, fundingAdjustments: [], equityHistory: [] })
+      fresh.state.accounts.push({ ...account, cash: fresh.state.config.initialCash, positions: {}, realized: 0, initialEquity: fresh.state.config.initialCash, netFunding: 0, totalDeposits: 0, fundingAdjustments: [], stockGrants: [], equityHistory: [] })
       fresh.recordEquity(fresh.state.accounts.at(-1)!)
     }
     this.state = fresh.state; this.rebuildIndexes(); this.botCursor = 0; this.nextPrune = 0
+    for (const account of this.state.accounts) if (account.role !== 'bot' && account.basePositionQuantity) this.seedBasePositions(account.id, account.basePositionQuantity)
     for (const operation of fresh.operations) this.operations.push(operation)
   }
   positionViews(account: Account): PositionView[] {
@@ -430,7 +462,7 @@ export class MarketEngine {
     const personal: PersonalView = { ...summary, registered: !!account.username, cost: summary.positions.reduce((s, p) => s + p.cost, 0),
       orders: this.state.orders.filter(o => o.accountId === accountId).slice(-200).reverse().map(o => ({ ...o })),
       trades: this.state.trades.filter(t => t.buyAccountId === accountId || t.sellAccountId === accountId).slice(-200).reverse().map(t => ({ ...publicTrade(t), side: t.buyAccountId === accountId ? 'buy' : 'sell' })),
-      equityHistory: account.equityHistory, fundingAdjustments: account.fundingAdjustments }
+      equityHistory: account.equityHistory, fundingAdjustments: account.fundingAdjustments, stockGrants: account.stockGrants, basePositionQuantity: account.basePositionQuantity }
     const levels = (side: Side) => {
       const grouped = new Map<number, number>()
       for (const order of this.books.get(symbol)![side]) grouped.set(order.price, (grouped.get(order.price) ?? 0) + order.remaining)

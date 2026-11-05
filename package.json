@@ -10,7 +10,8 @@
     "start": "tsx server/index.ts",
     "test": "tsx --test server/*.test.ts",
     "check": "vue-tsc --noEmit",
-    "admin:grant": "tsx server/grant-admin.ts"
+    "admin:grant": "tsx server/grant-admin.ts",
+    "portfolio:seed": "tsx server/seed-portfolio.ts"
   },
   "dependencies": {
     "express": "^5.1.0",

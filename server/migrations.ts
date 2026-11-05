@@ -15,7 +15,8 @@ export function hydrateState(value: unknown): EngineState {
     Object.assign(state.stocks[DEFAULT_SYMBOL]!, { lastPrice: state.lastPrice, previousClose: state.previousClose,
       candles: state.candles ?? [], totalVolume: state.totalVolume ?? 0, totalTurnover: state.totalTurnover ?? 0 })
   }
-  for (const definition of STOCK_CATALOG) state.stocks[definition.symbol] ??= newStocks()[definition.symbol]!
+  const defaults = newStocks()
+  for (const definition of STOCK_CATALOG) state.stocks[definition.symbol] ??= defaults[definition.symbol]!
   state.config.hotMoneyCount ??= state.accounts.filter(a => a.bot?.kind === 'hotMoney').length
   for (const stock of Object.values(state.stocks)) {
     if (!stock.dailyCandles?.length) stock.dailyCandles = aggregateCandles(stock.candles, '1d')
@@ -24,6 +25,7 @@ export function hydrateState(value: unknown): EngineState {
     const old = account as Account & { lots?: Lot[]; cost?: number; bot?: Account['bot'] & { anchor?: number } }
     account.positions ??= { [DEFAULT_SYMBOL]: { lots: old.lots ?? [], cost: old.cost ?? 0, realized: account.realized } }
     account.netFunding ??= 0; account.totalDeposits ??= 0; account.fundingAdjustments ??= []
+    account.stockGrants ??= []
     if (old.bot) {
       old.bot.primarySymbol ??= DEFAULT_SYMBOL
       old.bot.anchors ??= Object.fromEntries(STOCK_CATALOG.map(s => [s.symbol, s.symbol === DEFAULT_SYMBOL ? old.bot!.anchor ?? s.initialPrice : s.initialPrice]))

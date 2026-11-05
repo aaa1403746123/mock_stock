@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { MarketEngine, MarketError } from './engine.ts'
 import { MonitorStore } from './monitor.ts'
 import { initAdminAccess, applyAdminAccess, hasPendingAdminAccess } from './admin-access.ts'
+import { initBasePositions, applyBasePositions, hasPendingBasePositions } from './base-positions.ts'
 import type { EngineState } from '../src/shared/types.ts'
 import { DEFAULT_SYMBOL } from '../src/shared/rules.ts'
 
@@ -18,6 +19,7 @@ mkdirSync(dataDir, { recursive: true })
 const db = new DatabaseSync(resolve(dataDir, 'market.sqlite'))
 db.exec('PRAGMA busy_timeout=5000')
 initAdminAccess(db)
+initBasePositions(db)
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK (id=1), json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS rounds (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, json TEXT NOT NULL);')
 const saved = db.prepare('SELECT json FROM state WHERE id=1').get() as { json: string } | undefined
 const engine = new MarketEngine(saved ? JSON.parse(saved.json) as EngineState : undefined)
@@ -31,14 +33,16 @@ const persist = db.prepare('INSERT INTO state(id,json) VALUES(1,?) ON CONFLICT(i
 const save = (extra?: () => void) => {
   db.exec('BEGIN')
   let undoGrant: (() => void) | undefined
+  let undoBase: (() => void) | undefined
   try {
     extra?.()
     undoGrant = applyAdminAccess(db, engine.state)
+    undoBase = applyBasePositions(db, engine)
     persist.run(JSON.stringify(engine.state))
     monitor.append(engine.operations)
     db.exec('COMMIT')
     engine.operations.length = 0
-  } catch (error) { db.exec('ROLLBACK'); undoGrant?.(); throw error }
+  } catch (error) { db.exec('ROLLBACK'); undoBase?.(); undoGrant?.(); throw error }
 }
 save()
 const hash = (token: string) => createHash('sha256').update(token).digest('hex')
@@ -177,7 +181,7 @@ app.get('/api/admin/accounts/:id', (req, res) => {
   const history = monitor.history(market.state.round, accountId, String(req.query.type ?? 'all'), req.query.before === undefined ? undefined : Number(req.query.before))
   res.json({ round: market.state.round, time: market.state.time, account,
     pending: market.state.orders.filter(o => o.accountId === accountId && ['open', 'partial'].includes(o.status)),
-    ...history, fundingAdjustments: market.account(accountId).fundingAdjustments,
+    ...history, fundingAdjustments: market.account(accountId).fundingAdjustments, stockGrants: market.account(accountId).stockGrants,
   })
 })
 if (existsSync(resolve(root, 'dist/index.html'))) {
@@ -215,7 +219,7 @@ function broadcast() {
   }
 }
 const tick = setInterval(() => {
-  if (!clients.size && !hasPendingAdminAccess(db)) return
+  if (!clients.size && !hasPendingAdminAccess(db) && !hasPendingBasePositions(db)) return
   try { if (clients.size) engine.advance(engine.state.config.speed); save(); broadcast() }
   catch (error) { console.error('Market tick failed:', error); engine.state.config.paused = true; broadcast() }
 }, 1000)

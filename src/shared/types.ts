@@ -11,6 +11,7 @@ export interface HotMoneyState {
 export interface Lot { quantity: number; acquiredDay: string }
 export interface Position { lots: Lot[]; cost: number; realized: number }
 export interface EquityPoint { time: number; equity: number; netFunding?: number }
+export interface StockGrant { id: string; time: number; symbol: string; quantity: number; price: number; value: number; sharesBefore: number; sharesAfter: number; reason: string }
 export interface FundingAdjustment {
   id: string; requestId: string; time: number; reason: string; beforeEquity: number; targetEquity: number;
   delta: number; cashBefore: number; cashAfter: number;
@@ -23,6 +24,7 @@ export interface Account {
   id: string; name: string; role: 'admin' | 'trader' | 'bot'; username?: string; passwordHash?: string;
   cash: number; positions: Record<string, Position>; realized: number; initialEquity: number;
   netFunding: number; totalDeposits: number; fundingAdjustments: FundingAdjustment[];
+  stockGrants: StockGrant[]; basePositionQuantity?: number;
   bot?: { kind: BotKind; nextAt: number; primarySymbol: string; anchors: Record<string, number>; frequency: number; risk: number; hotMoney?: HotMoneyState };
   equityHistory: EquityPoint[];
 }
@@ -50,6 +52,7 @@ export interface PersonalView {
   cost: number; equity: number; initialEquity: number; realized: number; unrealized: number; pnl: number; returnPct: number;
   marketValue: number; positions: PositionView[]; netFunding: number; totalDeposits: number; fundingAdjustments: FundingAdjustment[];
   orders: Order[]; trades: (PublicTrade & { side: Side })[]; equityHistory: EquityPoint[];
+  stockGrants: StockGrant[]; basePositionQuantity?: number;
 }
 export interface PositionView { symbol: string; name: string; shares: number; sellable: number; frozenShares: number; cost: number; averageCost: number; price: number; marketValue: number; unrealized: number; realized: number }
 export interface StockQuote { symbol: string; name: string; sector: string; price: number; previousClose: number; change: number; changePct: number; open: number; high: number; low: number; volume: number; turnover: number; upperLimit: number | null; lowerLimit: number | null }
@@ -85,4 +88,5 @@ export interface MonitorDetail {
   operations: (AccountOperation & { cursor: number })[]; nextCursor: number | null;
   total: number; legacy: boolean;
   fundingAdjustments: FundingAdjustment[];
+  stockGrants: StockGrant[];
 }
