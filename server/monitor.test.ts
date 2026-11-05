@@ -10,7 +10,7 @@ test('1000 bots by default; legacy upgrade adds accounts once without altering o
   const e = new MarketEngine(undefined, { warmup: false, botCount: 24, time })
   const a = e.createAccount('owner', 'admin')
   e.submit(a.id, { side: 'buy', kind: 'limit', price: 4000, quantity: 100, requestId: 'preserved-order' })
-  delete e.state.migrations
+  e.state.migrations = ['liquidity-50-stocks-v1']
   const oldAccounts = JSON.parse(JSON.stringify(e.state.accounts)), oldOrders = JSON.parse(JSON.stringify(e.state.orders))
   e.upgradePopulation()
   assert.equal(e.state.accounts.filter(a => a.role === 'bot').length, 1015)

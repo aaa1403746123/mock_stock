@@ -9,9 +9,9 @@ const time = new Date('2026-11-05T09:30:00+08:00').getTime()
 const fresh = () => new MarketEngine(undefined, { botCount: 0, warmup: false, time })
 const order = (e: MarketEngine, accountId: string, symbol: string, side: Side, price: number, quantity = 100) => e.submit(accountId, { symbol, side, kind: 'limit', price, quantity, requestId: `test-request-${e.state.seq}` })
 
-test('ten independent books and candles: an order cannot consume liquidity or shares of another stock', () => {
+test('fifty independent books and candles: an order cannot consume liquidity or shares of another stock', () => {
   const e = fresh(), buyer = e.createAccount('buyer'), sellerA = e.createAccount('seller A', 'trader', 0, 100, A), sellerB = e.createAccount('seller B', 'trader', 0, 200, B)
-  assert.equal(Object.keys(e.state.stocks).length, 10)
+  assert.equal(Object.keys(e.state.stocks).length, 50)
   const aSell = order(e, sellerA.id, A, 'sell', 2000)
   order(e, sellerB.id, B, 'sell', 2580)
   order(e, buyer.id, B, 'buy', 3000)
@@ -92,7 +92,7 @@ test('single-stock saves hydrate without changing assets, active orders, session
   for (const o of legacy.orders) delete o.symbol
   for (const entry of Object.values(legacy.requests) as { fingerprint: string }[]) entry.fingerprint = JSON.stringify(JSON.parse(entry.fingerprint).slice(1))
   const restored = new MarketEngine(legacy as EngineState)
-  assert.equal(restored.state.version, 2); assert.equal(Object.keys(restored.state.stocks).length, 10)
+  assert.equal(restored.state.version, 2); assert.equal(Object.keys(restored.state.stocks).length, 50)
   assert.equal(restored.account(owner.id).cash, owner.cash); assert.equal(restored.accountSummary(owner.id).equity, e.accountSummary(owner.id).equity)
   assert.equal(restored.availableShares(restored.account(owner.id), A), 200)
   assert.equal(restored.frozenCash(owner.id), 400000)
@@ -101,7 +101,7 @@ test('single-stock saves hydrate without changing assets, active orders, session
   assert.deepEqual(restored.state.sessions, e.state.sessions)
 })
 
-test('1015 independently scheduled bots trade all ten stocks, conserve assets and resume deterministically', t => {
+test('1015 independently scheduled bots trade all fifty stocks, conserve assets and resume deterministically', t => {
   const e = new MarketEngine(undefined, { warmup: false, time, seed: 321 })
   const supply = () => Object.fromEntries(STOCK_CATALOG.map(s => [s.symbol, e.state.accounts.reduce((sum, a) => sum + (a.positions[s.symbol]?.lots ?? []).reduce((v, l) => v + l.quantity, 0), 0)]))
   const beforeShares = supply(), beforeCash = e.state.accounts.reduce((sum, a) => sum + a.cash, 0)
@@ -120,5 +120,5 @@ test('1015 independently scheduled bots trade all ten stocks, conserve assets an
   e.advance(60); restored.advance(60)
   assert.deepEqual(restored.state, e.state)
   const summaryStart = performance.now(); e.state.accounts.map(a => e.accountSummary(a.id))
-  t.diagnostic(`1015 bots / 10 stocks: average tick ${(durations.reduce((s, n) => s + n, 0) / durations.length).toFixed(2)}ms, max ${Math.max(...durations).toFixed(2)}ms, all-account summary ${(performance.now() - summaryStart).toFixed(2)}ms`)
+  t.diagnostic(`1015 bots / 50 stocks: average tick ${(durations.reduce((s, n) => s + n, 0) / durations.length).toFixed(2)}ms, max ${Math.max(...durations).toFixed(2)}ms, all-account summary ${(performance.now() - summaryStart).toFixed(2)}ms`)
 })

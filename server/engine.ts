@@ -96,7 +96,7 @@ export class MarketEngine {
     const kinds: BotKind[] = ['maker', 'maker', 'retail', 'trend', 'value', 'retail', 'whale', 'retail']
     const offset = this.state.accounts.filter(a => a.role === 'bot' && a.bot?.kind !== 'hotMoney').length
     for (let i = offset; i < offset + count; i++) {
-      const kind = kinds[Math.floor(i / STOCK_CATALOG.length) % kinds.length]!
+      const kind = kinds[Math.floor(i / 10) % kinds.length]!
       const symbol = STOCK_CATALOG[i % STOCK_CATALOG.length]!.symbol
       const account = this.createAccount(`策略代理 ${i + 1}`, 'bot', kind === 'whale' ? 100_000_000 : kind === 'maker' ? 200_000_000 : 20_000_000, kind === 'maker' ? 50000 : kind === 'whale' ? 20000 : 5000, symbol)
       account.bot = { kind, nextAt: this.state.time + this.random() * 30000, primarySymbol: symbol,

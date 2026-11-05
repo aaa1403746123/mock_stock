@@ -40,7 +40,7 @@ test('API authentication, isolated portfolios, idempotent orders, websocket isol
     assert.equal(first.body.snapshot.account.role, 'admin'); assert.equal(second.body.snapshot.account.role, 'trader')
     assert.notEqual(first.body.snapshot.account.id, second.body.snapshot.account.id)
     assert.equal(first.body.snapshot.config.botCount, 1000)
-    assert.equal(first.body.snapshot.stocks.length, 10)
+    assert.equal(first.body.snapshot.stocks.length, 50)
     const fundingInput = { round: 1, targetEquity: 20000000, reason: '接口测试注资', requestId: 'api-funding-request' }
     assert.equal((await request('/admin/equity', 'POST', traderToken, fundingInput)).status, 403)
     assert.equal((await request('/admin/equity', 'POST', adminToken, { ...fundingInput, accountId: second.body.snapshot.account.id })).status, 400)
@@ -86,7 +86,7 @@ test('API authentication, isolated portfolios, idempotent orders, websocket isol
       ws.on('error', reject)
     })
     assert.equal(wsView.account.id, second.body.snapshot.account.id); assert.equal(wsView.account.orders.length, 0)
-    assert.equal(wsView.stock.symbol, '600003.SH'); assert.equal(wsView.stocks.length, 10)
+    assert.equal(wsView.stock.symbol, '600003.SH'); assert.equal(wsView.stocks.length, 50)
     assert.equal(wsView.account.fundingAdjustments.length, 0)
     await stop(); await start()
     const restored = await request('/state', 'GET', adminToken)
